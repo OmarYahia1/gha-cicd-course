@@ -72,8 +72,12 @@ jobs:
         run: |
           docker tag $IMAGE_NAME:${{ steps.tag.outputs.tag }} \
           ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.tag }}
+          docker tag $IMAGE_NAME:${{ steps.tag.outputs.tag }} \ 
+          ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
 
       - name: Push image to ECR
         run: |
           docker push \
           ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.tag }}
+          docker push \
+          ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
