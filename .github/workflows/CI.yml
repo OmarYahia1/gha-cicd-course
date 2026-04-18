@@ -1,18 +1,29 @@
-name: 02 CI Workflow (PR Verify + Build)
+name: CI and Build Pipeline
 
 on:
   pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
+    types:
+      - closed
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "tests/**"
+      - ".github/workflows/**"
+
+  workflow_dispatch:
 
 env:
   IMAGE_NAME: tiny-health-app
   IMAGE_TAR: tiny-health-app.tar
+  ARTIFACT_NAME: tiny-health-app-image
 
 jobs:
-  verify:
+  # Job 1: Run Tests
+  run-tests:
+    if: github.event.pull_request.merged == true
+    
     runs-on: ubuntu-latest
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -25,21 +36,35 @@ jobs:
       - name: Run tests
         run: python -m unittest discover -s tests -v
 
-      - name: Sleep (simulate delay)
-        run: sleep 100
+  # Job 2: Build and Package
+  build-package:
+    needs: run-tests
+    if: github.event.pull_request.merged == true
+    
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
 
       - name: Set image tag
         id: image-tag
         run: |
-          IMAGE_TAG="pr-${GITHUB_RUN_ID}"
+          TODAY="$(date -u +%Y-%m-%d)"
+          IMAGE_TAG="${TODAY}-${GITHUB_RUN_ID}"
           echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Build Docker image
+      - name: Build Docker image with docker build
         run: |
           docker build \
             -t "${IMAGE_NAME}:${{ steps.image-tag.outputs.image_tag }}" \
             .
 
-      - name: Save Docker image (validation only)
-        run: |
-          docker save "${IMAGE_NAME}:${{ steps.image-tag.outputs.image_tag }}" -o "${IMAGE_TAR}"
+      - name: Save Docker image as artifact file
+        run: docker save "${IMAGE_NAME}:${{ steps.image-tag.outputs.image_tag }}" -o "${IMAGE_TAR}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.IMAGE_TAR }}
+          retention-days: 7
