@@ -1,16 +1,16 @@
-name: CI and Build Pipeline
+name: CI + Build Workflow
 
 on:
+  # PR CI trigger
   pull_request:
-    types:
-      - closed
-    branches:
-      - main
-    paths:
-      - "app/**"
-      - "tests/**"
-      - ".github/workflows/**"
+    branches: [main]
+    types: [opened, synchronize, reopened]
 
+  # After merge trigger (push to main)
+  push:
+    branches: [main]
+
+  # Manual run still allowed
   workflow_dispatch:
 
 env:
@@ -19,11 +19,11 @@ env:
   ARTIFACT_NAME: tiny-health-app-image
 
 jobs:
-  # Job 1: Run Tests
-  run-tests:
-    if: github.event.pull_request.merged == true
-    
+
+  # ✅ Part A: PR verification
+  verify:
     runs-on: ubuntu-latest
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -36,15 +36,25 @@ jobs:
       - name: Run tests
         run: python -m unittest discover -s tests -v
 
-  # Job 2: Build and Package
+  # ✅ Part B: Build only AFTER merge (push to main)
   build-package:
-    needs: run-tests
-    if: github.event.pull_request.merged == true
-    
+    needs: verify
     runs-on: ubuntu-latest
+
+    # 🔥 Critical: only run on push to main (NOT PR)
+    if: github.event_name == 'push'
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
 
       - name: Set image tag
         id: image-tag
@@ -53,13 +63,13 @@ jobs:
           IMAGE_TAG="${TODAY}-${GITHUB_RUN_ID}"
           echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Build Docker image with docker build
+      - name: Build Docker image
         run: |
           docker build \
             -t "${IMAGE_NAME}:${{ steps.image-tag.outputs.image_tag }}" \
             .
 
-      - name: Save Docker image as artifact file
+      - name: Save Docker image
         run: docker save "${IMAGE_NAME}:${{ steps.image-tag.outputs.image_tag }}" -o "${IMAGE_TAR}"
 
       - name: Upload build artifact
