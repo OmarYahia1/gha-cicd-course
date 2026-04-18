@@ -1,0 +1,77 @@
+name: Deploy from ECR
+
+on:
+  workflow_run:
+    workflows: ["Build and Push to ECR"]
+    types: [completed]
+
+env:
+  ECR_REPO: 172030246706.dkr.ecr.eu-north-1.amazonaws.com/my-app
+  CONTAINER_NAME: tiny-health-container
+  APP_PORT: "8000"
+  AWS_REGION: eu-north-1
+
+jobs:
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::172030246706:role/omargithubactionrole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Recreate image tag from build
+        id: image-tag
+        run: |
+          BUILD_DATE="$(echo "${{ github.event.workflow_run.created_at }}" | cut -dT -f1)"
+          IMAGE_TAG="${BUILD_DATE}-${{ github.event.workflow_run.id }}"
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Pull image from ECR
+        run: |
+          docker pull $ECR_REPO:${{ steps.image-tag.outputs.image_tag }} || \
+          docker pull $ECR_REPO:latest
+
+      - name: Run container
+        run: |
+          docker run -d \
+            --name $CONTAINER_NAME \
+            -p $APP_PORT:8000 \
+            $ECR_REPO:${{ steps.image-tag.outputs.image_tag }} || \
+          docker run -d \
+            --name $CONTAINER_NAME \
+            -p $APP_PORT:8000 \
+            $ECR_REPO:latest
+
+      - name: Show running containers
+        run: docker ps
+
+      - name: Smoke test
+        run: |
+          for i in 1 2 3 4 5; do
+            RESPONSE=$(curl --silent http://127.0.0.1:$APP_PORT/health || true)
+
+            if [ -n "$RESPONSE" ]; then
+              echo "$RESPONSE"
+              exit 0
+            fi
+
+            sleep 2
+          done
+
+          echo "App failed"
+          exit 1
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f $CONTAINER_NAME || true
