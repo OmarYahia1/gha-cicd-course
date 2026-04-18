@@ -1,18 +1,38 @@
 name: 03 Build & Push to ECR
 
 on:
-  workflow_dispatch:
-  push:
+  pull_request:
     branches:
       - main
-
+    types:
+      - opened
+      - synchronize
+      - reopened
 env:
   IMAGE_NAME: tiny-health-app
   AWS_REGION: ${{ secrets.AWS_REGION }}
   ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
 
 jobs:
-  build-and-push:
+   verify:
+    # The runner is the temporary machine that executes the steps below.
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        # Download the repository contents onto the runner.
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        # Prepare Python on the runner. This does not change the student laptop.
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Run tests
+        # This is the key verification step in the CI workflow.
+        run: python -m unittest discover -s tests -v
+   build-and-push:
     runs-on: ubuntu-latest
 
     steps:

@@ -1,15 +1,15 @@
 name: 04 Deploy Workflow
 
 on:
-  workflow_run:
-    workflows: ["03 Build & Push to ECR"]
-    types: [completed]
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
 
 env:
-  IMAGE_NAME: tiny-health-app
   CONTAINER_NAME: tiny-health-container
   APP_PORT: "8000"
-
   AWS_REGION: ${{ secrets.AWS_REGION }}
   ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
 
@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   deploy:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
 
     steps:
@@ -34,12 +34,11 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # 🔥 Recreate SAME tag used in build workflow
+      # 🔥 Use commit SHA (same as build)
       - name: Set image tag
         id: tag
         run: |
-          TAG="${{ github.event.workflow_run.head_sha }}"
-          TAG="${TAG::7}"
+          TAG="${GITHUB_SHA::7}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Pull image from ECR
@@ -54,16 +53,19 @@ jobs:
             -p "${APP_PORT}:8000" \
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.tag }}
 
+      - name: Container check
+        run: docker ps
+
       - name: Smoke test deployed app
         run: |
           for attempt in 1 2 3 4 5; do
             if curl --fail --silent "http://127.0.0.1:${APP_PORT}/health"; then
+              curl "http://127.0.0.1:${APP_PORT}/health"
               exit 0
             fi
-            echo "Waiting for app..."
             sleep 2
           done
-          echo "App failed to start"
+          echo "App failed"
           exit 1
 
       - name: Cleanup
